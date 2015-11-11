@@ -100,6 +100,13 @@ class ODUPPolicyRealm(object):
         else:
             origin = self.origin.to_text()
 
+        if name == dns.name.empty:
+            if self._policies[dns.name.empty]:
+                _logger.debug('_odup.%s/TXT: NOERROR (local): %s' % (origin, self._policies[dns.name.empty]))
+            else:
+                _logger.debug('_odup.%s/TXT: NODATA (local)' % (origin))
+            return self.origin, self.origin, self._policies[dns.name.empty]
+
         # check for org/bound directives in names in ancestry
         longest_match = None
         longest_match_boundary = None
