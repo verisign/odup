@@ -48,17 +48,24 @@ class ODUPPolicyRealm(object):
         z = dns.zone.from_file(filename, dns.name.from_text('_odup', self.origin))
 
         self._policies = {}
-        for name, ttl, rdata in z.iterate_rdatas(dns.rdatatype.TXT):
-            rdata_txt = rdata.to_text().strip('"')
-            # only ODUP policies
-            if ODUP_VERS1.search(rdata_txt) is None:
+        for name, ttl, rdata in z.iterate_rdatas():
+            # If not type TXT, then mark that the name merely exists, but with
+            # no policy
+            if not isinstance(rdata, dns.rdtypes.ANY.TXT.TXT):
+                self._policies[name] = None
                 continue
-            # just one policy per name
-            if name not in self._policies:
-                self._policies[name] = rdata_txt
+
+            rdata_txt = rdata.to_text().strip('"')
+            # If not an ODUP policy, then mark that the name merely exists, but
+            # with no policy
+            if ODUP_VERS1.search(rdata_txt) is None:
+                self._policies[name] = None
+                continue
+
+            self._policies[name] = rdata_txt
 
         # add a default policy for the origin, if there isn't one already
-        if dns.name.empty not in self._policies:
+        if self._policies.get(dns.name.empty, None) is None:
             self._policies[dns.name.empty] = ''
         self._populate_empty_non_terminals()
 
