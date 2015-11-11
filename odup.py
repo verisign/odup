@@ -188,6 +188,10 @@ class ODUPPolicyRealm(object):
                     org_domain = dns.name.Name(name[-(existing_labels+1):]).derelativize(self.origin)
                     return None, org_domain, None
                 else:
+                    if self._policies[dns.name.empty]:
+                        _logger.debug('_odup.%s/TXT: NOERROR (local): %s' % (origin, self._policies[dns.name.empty]))
+                    else:
+                        _logger.debug('_odup.%s/TXT: NODATA (local)' % (origin))
                     return self.origin, self.origin, self._policies[dns.name.empty]
 
             # With no +org or +bound directives present, the orgDomain and
@@ -207,6 +211,10 @@ class ODUPPolicyRealm(object):
                 return None, org_domain, None
 
             # Otherwise, return the policy for the orgDomain
+            if self._policies[dns.name.empty]:
+                _logger.debug('_odup.%s/TXT: NOERROR (local): %s' % (origin, self._policies[dns.name.empty]))
+            else:
+                _logger.debug('_odup.%s/TXT: NODATA (local)' % (origin))
             return self.origin, self.origin, self._policies[dns.name.empty]
 
 class ODUPResolver(object):
