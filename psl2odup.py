@@ -33,6 +33,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 import codecs
+import os
 import re
 
 import dns.name
@@ -50,48 +51,71 @@ def import_names(f, i, p):
             if not line:
                 continue
             name = dns.name.from_text(line)
+            tld = dns.name.from_text(name[-2])
 
-            line = re.sub(r'//.*', '', line)
+            if tld not in n:
+                n[tld] = set()
+            if tld != name:
+                n[tld].add(name)
 
-            n.add(name)
+def export_zone(tld, names, zonefile_dir, server_names, conffile_fh):
+
+    filename = os.path.join(zonefile_dir, 'db._odup.%s' % (tld.to_text().rstrip('.')))
+    conffile_fh.write('zone "_odup.%s" {\n' % tld.to_text())
+    conffile_fh.write('\ttype master;\n')
+    conffile_fh.write('\tfile "%s";\n' % filename)
+    conffile_fh.write('\tallow-transfer { any; };\n')
+    conffile_fh.write('};\n')
+
+    with open(filename, 'w+') as fh:
+        fh.write('$ORIGIN _odup.%s\n' % (tld.to_text()))
+        fh.write('$TTL 604800\n')
+        fh.write('@\tSOA\t%s root.nic.%s 1 1800 900 604800 86400\n' % (server_names[0].to_text(), tld.to_text()))
+        for server_name in server_names:
+            fh.write('\tNS\t%s\n' % (server_name.to_text()))
+        fh.write('\tTXT\t"v=odup1 +bound +fetch:axfr:// -all"\n')
+
+        for name in names:
+            name = name.relativize(tld)
+            if name[0][0].startswith('!'):
+                fh.write('%s\tTXT\t"v=odup1 +org"\n' % (name.to_text().lstrip('!')))
+            elif name[0] == '*':
+                fh.write('%s\tTXT\t"v=odup1 +bound:%d"\n' % (name.to_text(), len(name) - 1))
+            else:
+                fh.write('%s\tTXT\t"v=odup1 +bound"\n' % (name.to_text()))
 
 def usage():
     import sys
-    sys.stderr.write('Usage: %s <psl_filename> <odup_ns_zone>\n' % (sys.argv[0]))
+    sys.stderr.write('Usage: %s <psl_filename> <zonefile_dir> <named_conf_inc_filename> [ <server_name> ]\n' % (sys.argv[0]))
 
 def main():
     import sys
 
     args = sys.argv[1:]
-    if len(args) != 2:
+    if len(args) < 3:
         usage()
         sys.exit(1)
 
     public_suffix_file = args[0]
-    zone_name = dns.name.from_text(args[1]).to_text()
+    zonefile_dir = args[1]
+    named_conf_inc_filename = args[2]
 
-    if zone_name == '.':
-        sys.stderr.write('ODUP NS zone name may not be the root.\n')
-        sys.exit(1)
+    if len(args) > 3:
+        server_name = dns.name.from_text(args[3])
+    else:
+        server_name = None
 
-    icann_names = set()
-    private_names = set()
+    icann_names = {}
+    private_names = {}
     import_names(public_suffix_file, icann_names, private_names)
 
-    print '$ORIGIN _odup.'
-    print '$TTL 604800'
-    print '@\tSOA\ta.%s root.%s 1 1800 900 604800 86400' % (zone_name, zone_name)
-    print '\tNS\ta.%s' % (zone_name)
-    print '\tNS\tb.%s' % (zone_name)
-    print '\tTXT\t"v=odup1 +bound -all"'
-
-    for name in icann_names:
-        if name[0][0].startswith('!'):
-            print '%s\tTXT\t"v=odup1 +org"' % str(name).rstrip('.').lstrip('!')
-        elif name[0] == '*':
-            print '%s\tTXT\t"v=odup1 +bound:%d"' % (str(name).rstrip('.'), len(name) - 2)
-        else:
-            print '%s\tTXT\t"v=odup1 +bound"' % str(name).rstrip('.')
+    with open(named_conf_inc_filename, 'w+') as fh:
+        for tld in icann_names:
+            if server_name is not None:
+                server_names = (server_name,)
+            else:
+                server_names = (dns.name.Name(('a', 'odup-servers', tld[-2])),)
+            export_zone(tld, icann_names[tld], zonefile_dir, server_names, fh)
 
 if __name__ == '__main__':
     main()
