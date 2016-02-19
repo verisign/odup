@@ -227,7 +227,7 @@ class ODUPResolver(object):
         self._local_policies = local_policies
 
     def resolve(self, name):
-        return self._resolve(name, 0)
+        return self._resolve(name, 1)
 
     def _resolve(self, name, org_boundary):
         org_domain = dns.name.Name(name[-(org_boundary+1):])
