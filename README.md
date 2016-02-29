@@ -4,31 +4,41 @@
 
 These scripts are an implementation of the organizational domain and use
 policies (ODUP) resolution algorithm described in
-draft-deccio-dbound-organizational-domain-policy
-(http://datatracker.ietf.org/doc/draft-deccio-domain-name-relationships/).
+[draft-deccio-dbound-organizational-domain-policy](https://tools.ietf.org/html/draft-deccio-dbound-organizational-domain-policy)
+for demonstration, testing, and further development.
 
 ## Setup
 
-For the most accurate results, using current behavior as a baseline, a
-policy-negative realm must be created, based on Mozilla's Public Suffix List.
-This can be done by running the following to create a top-level "\_odup" zone:
+In order for ODUP resolution to work properly using the included `odup.py`
+script, ODUP statements must exist in the DNS.  Because this involves
+modifications to the namespace controlled by many different entities, we
+include scripts to make them available using local resolver configuration
+instead.
+
+### Policy-Negative Realm
+
+The policy-negative realm is created using Mozilla's Public Suffix List.
+This can be done by running the following to create local zones for "\_odup"
+subdomains for every TLD in the public suffix list:
 
 ```
 $ curl -O https://publicsuffix.org/list/public_suffix_list.dat
-$ python psl2odup.py public_suffix_list.dat odup-servers.net > odup.zone
+$ mkdir odup_zones
+$ python psl2odup.py public_suffix_list.dat odup_zones named.conf.odup-include localhost
 ```
 
-This zone file can be included as a zone in a BIND resolver, by adding the
-following zone statement to named.conf:
-
+To include these files for use in a BIND resolver, do the following:
+ * Move both the `named.conf.odup-include` file and the `odup\_zones` directory
+   to the directory specified by the `directory` statement in your `named.conf`
+   file.
+ * Add an `include` statement to your `named.conf`:
 ```
-zone "_odup" {
-	notify no;
-	type master;
-	file "odup.zone";
-};
+include "named.conf.odup-include";
 ```
 
+### Policies from "Private Domains" in the Public Suffix List
+
+### Other Policies
 You might also like to create additional _odup zones to test how it works
 outside of the policy-negative realm.  The following creates a zone with some
 example contexts for the _odup.example.com zone:
