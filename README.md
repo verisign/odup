@@ -15,11 +15,10 @@ modifications to the namespace controlled by many different entities, we
 include scripts to make them available using local resolver configuration
 instead.
 
-### Policy-Negative Realm
-
-The policy-negative realm is created using Mozilla's Public Suffix List.
-This can be done by running the following to create local zones for "\_odup"
-subdomains for every TLD in the public suffix list:
+The domains from Mozilla's Public Suffix List have negative policies by
+definition because of their designation as "public suffixes".  Those policies
+can be added to a local resolver by effectively creating local "\_odup" zones
+for every name in the public suffix list:
 
 ```
 $ curl -O https://publicsuffix.org/list/public_suffix_list.dat
@@ -36,20 +35,17 @@ To include these files for use in a BIND resolver, do the following:
 include "named.conf.odup-include";
 ```
 
-### Policies from "Private Domains" in the Public Suffix List
-
-### Other Policies
 You might also like to create additional _odup zones to test how it works
-outside of the policy-negative realm.  The following creates a zone with some
-example contexts for the _odup.example.com zone:
+outside of the suffixes in the Public Suffix List.  The following creates a
+zone with some example contexts for the _odup.example.com zone:
 
 ```
-$ cat - <<EOF > odup-example.zone
+$ cat - <<EOF > db._odup.example.com
 \$ORIGIN _odup.example.com.
 \$TTL 604800
-@ SOA a.odup-servers.net. root.odup-servers.net. 1 1800 900 604800 86400
-  NS  a.odup-servers.net.
-  NS  b.odup-servers.net.
+@ SOA a.odup.example.com. root.odup.example.com. 1 1800 900 604800 86400
+  NS  a.odup.example.com.
+  NS  b.odup.example.com.
 sub TXT "v=odup1 +org"
 sub.b.a TXT "v=odup1 +org"
 no-wildcard TXT "v=odup1 -wildcardtlscert"
@@ -62,7 +58,7 @@ follows:
 zone "_odup.example.com" {
 	notify no;
 	type master;
-	file "odup-example.zone";
+	file "db._odup.example.com";
 };
 ```
 
@@ -138,7 +134,7 @@ Organizational domain: sub.example.com.
 
 Also use the local version of the example.com policy realm:
 ```
-$ python odup.py -d -n .:odup.zone -n example.com:odup-example.zone -s 127.0.0.1 sub.example.com
+$ python odup.py -d -n .:odup.zone -n example.com:db._odup.example.com -s 127.0.0.1 sub.example.com
 com._odup./TXT: NOERROR (local): v=odup1 +bound
 example.com._odup./TXT: NXDOMAIN (local)
 sub._odup.example.com./TXT: NOERROR (local): v=odup1 +org
