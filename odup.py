@@ -367,7 +367,7 @@ class ODUPResolver(object):
 
 def usage():
     import sys
-    sys.stderr.write('Usage: %s [-n <domain>:<policy_file>] [-s <server>] [-p <port>] <domainname>\n' % (sys.argv[0]))
+    sys.stderr.write('Usage: %s [-d] [-n <domain>:<policy_file>] [-s <server>] [-p <port>] <domainname>\n' % (sys.argv[0]))
 
 def main():
     import sys
