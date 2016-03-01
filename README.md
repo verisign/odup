@@ -62,6 +62,34 @@ zone "_odup.example.com" {
 };
 ```
 
+## Compiling a Public Suffix List
+
+The so-called ICANN names portion of the Public Suffix List can be derived from
+ODUP statements in the DNS.  This is done by iteratively downloading the
+"\_odup" zones from every top-level domain (TLD) in the delegated root zone.
+This functionality is demonstrated in the included `odup2psl.py` script.
+
+```
+python odup2psl.py -s 127.0.0.1 root.zone > psl.dat
+```
+
+Note that this won't include TLDs not yet included in the root zone, even
+though many of these are already included in Mozilla's Public Suffix List.
+Also, it does not include the so-called private domains from the Public Suffix
+List.  However, eventually this script will have an option to include a list of
+other domains for which ODUP statements should be downloaded.
+
+## Compiling Local ODUP Statements
+
+As described in draft-deccio-dbound-organizational-domain-policy, ODUP
+statements can be downloaded and compiled for local use, to avoid the overhead
+associated with DNS lookups associated with ODUP resolution.  This is
+demonstrated by running the `odup2psl.py` script with the `-z` option:
+
+```
+python odup2psl.py -s 127.0.0.1 -z root.zone > db._odup
+```
+
 ## ODUP Resolution
 
 Use the `odup.py` script to perform ODUP resolution for a name.  Point the
@@ -121,7 +149,7 @@ Use a local version of the policy-negative realm to look up the policy for
 sub.example.com.  Use `-d` to show the lookups.  "(local)" means that the
 information was learned from the file, rather than from DNS queries.
 ```
-$ python odup.py -d -n .:odup.zone -s 127.0.0.1 sub.example.com
+$ python odup.py -d -n .:db._odup -s 127.0.0.1 sub.example.com
 com._odup./TXT: NOERROR (local): v=odup1 +bound
 example.com._odup./TXT: NXDOMAIN (local)
 sub._odup.example.com./TXT: NOERROR: v=odup1 +org
@@ -134,7 +162,7 @@ Organizational domain: sub.example.com.
 
 Also use the local version of the example.com policy realm:
 ```
-$ python odup.py -d -n .:odup.zone -n example.com:db._odup.example.com -s 127.0.0.1 sub.example.com
+$ python odup.py -d -n .:db._odup -n example.com:db._odup.example.com -s 127.0.0.1 sub.example.com
 com._odup./TXT: NOERROR (local): v=odup1 +bound
 example.com._odup./TXT: NXDOMAIN (local)
 sub._odup.example.com./TXT: NOERROR (local): v=odup1 +org
