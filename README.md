@@ -82,9 +82,10 @@ other domains for which ODUP statements should be downloaded.
 ## Compiling Local ODUP Statements
 
 As described in draft-deccio-dbound-organizational-domain-policy, ODUP
-statements can be downloaded and compiled for local use, to avoid the overhead
-associated with DNS lookups associated with ODUP resolution.  This is
-demonstrated by running the `odup2psl.py` script with the `-z` option:
+statements for the policy-negative realm can be downloaded and compiled for
+local use, to avoid the overhead resulting from DNS lookups associated with
+ODUP resolution.  This is demonstrated by running the `odup2psl.py` script with
+the `-z` option:
 
 ```
 python odup2psl.py -s 127.0.0.1 -z root.zone > db._odup
@@ -98,22 +99,13 @@ domain, policy domain, and policy (if any) will be printed to the screen.  Use
 the `-d` option to show the DNS queries that are taking place.  Examples
 follow.
 
-Look up the policy for the root:
-```
-$ python odup.py -s 127.0.0.1 .
-          Domain name: .
-Organizational domain: .
-        Policy domain: .
-               Policy: v=odup1 +bound -all
-```
-
 Look up the policy for com:
 ```
 $ python odup.py -s 127.0.0.1 com
           Domain name: com
-Organizational domain: .
-        Policy domain: .
-               Policy: v=odup1 +bound -all
+Organizational domain: com.
+        Policy domain: com.
+               Policy: v=odup1 +bound +fetch:axfr:// -all
 ```
 
 Look up the policy for example.com (a blank policy results in "+all"):
