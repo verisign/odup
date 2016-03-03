@@ -42,37 +42,45 @@ ORG_RE = re.compile(r'(^|\s)\+org(:\S+)?(\s|$)')
 BOUND_RE = re.compile(r'(^|\s)\+bound(:(?P<labels>\d+))?(\s|$)')
 
 class ODUPPolicyRealm(object):
-    def __init__(self, origin, filename):
+    def __init__(self, origin):
         self.origin = origin
         assert self.origin.is_absolute()
-        z = dns.zone.from_file(filename, dns.name.from_text('_odup', self.origin))
 
         self._policies = {}
+
+    @classmethod
+    def from_file(cls, origin, filename):
+        z = dns.zone.from_file(filename, dns.name.from_text('_odup', origin))
+
+        obj = ODUPPolicyRealm(origin)
         for name, ttl, rdata in z.iterate_rdatas():
-            # If not type TXT, then mark that the name merely exists, but with
-            # no policy
-            if not isinstance(rdata, dns.rdtypes.ANY.TXT.TXT):
-                self._policies[name] = None
-                continue
+            obj.add_policy_from_rdata(name, rdata)
+        obj.add_default_policy()
+        obj.populate_empty_non_terminals()
+        return obj
 
-            rdata_txt = rdata.to_text().strip('"')
-            # If not an ODUP policy, then mark that the name merely exists, but
-            # with no policy
-            if ODUP_VERS1.search(rdata_txt) is None:
-                self._policies[name] = None
-                continue
+    @classmethod
+    def from_aggregate_file(cls, origin, filename):
+        policy_realms = {}
 
-            self._policies[name] = rdata_txt
+        z = dns.zone.from_file(filename, dns.name.from_text('_odup', origin))
 
-        # add a default policy for the origin, if there isn't one already
-        if self._policies.get(dns.name.empty, None) is None:
-            self._policies[dns.name.empty] = ''
-        self._populate_empty_non_terminals()
+        for name, ttl, rdata in z.iterate_rdatas():
+            suffix = dns.name.Name(name[-2:]).derelativize(origin)
+            name = dns.name.Name(name[:-2])
+            if suffix not in policy_realms:
+                policy_realms[suffix] = ODUPPolicyRealm(suffix)
+            policy_realms[suffix].add_policy_from_rdata(name, rdata)
+
+        for suffix in policy_realms:
+            policy_realms[suffix].add_default_policy()
+            policy_realms[suffix].populate_empty_non_terminals()
+        return policy_realms
 
     def __repr__(self):
         return '<%s: %s>' % (self.__class__.__name__, self.origin.to_text())
 
-    def _populate_empty_non_terminals(self):
+    def populate_empty_non_terminals(self):
         for name in self._policies.keys():
             if name in (dns.name.empty, dns.name.root):
                 continue
@@ -84,6 +92,27 @@ class ODUPPolicyRealm(object):
                     name = name.parent()
                 except dns.name.NoParent:
                     break
+
+    def add_policy_from_rdata(self, name, rdata):
+        # If not type TXT, then mark that the name merely exists, but with
+        # no policy
+        if not isinstance(rdata, dns.rdtypes.ANY.TXT.TXT):
+            self._policies[name] = None
+            return
+
+        rdata_txt = rdata.to_text().strip('"')
+        # If not an ODUP policy, then mark that the name merely exists, but
+        # with no policy
+        if ODUP_VERS1.search(rdata_txt) is None:
+            self._policies[name] = None
+            return
+
+        self._policies[name] = rdata_txt
+
+    def add_default_policy(self):
+        # add a default policy for the origin, if there isn't one already
+        if self._policies.get(dns.name.empty, None) is None:
+            self._policies[dns.name.empty] = ''
 
     def resolve(self, name):
         assert not name.is_absolute() or name.is_subdomain(self.origin)
@@ -406,7 +435,10 @@ def main():
                 sys.exit(1)
             else:
                 n = dns.name.from_text(d)
-                local_policies[n] = ODUPPolicyRealm(n, os.path.expanduser(f))
+                if n == dns.name.root:
+                    local_policies.update(ODUPPolicyRealm.from_aggregate_file(n, os.path.expanduser(f)))
+                else:
+                    local_policies[n] = ODUPPolicyRealm.from_file(n, os.path.expanduser(f))
         elif opt == '-d':
             _logger.setLevel(logging.DEBUG)
 
