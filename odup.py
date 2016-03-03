@@ -172,13 +172,6 @@ class ODUPPolicyRealm(object):
                 pass
 
         if longest_match is not None:
-            #   Special case:
-            #     org_domain is a TLD, and the aggregated policy-negative realm is
-            #     available as a local policy--as the root zone
-            if self.origin == dns.name.root and longest_match_boundary == 0:
-                org_domain = dns.name.Name(name[-(longest_match_boundary+1):])
-                return org_domain, org_domain, longest_match
-
             # If a policy has been found, then look for +org or +bound
             # directives, which will cause org names to be returned.
             # A +org directive indicates that the organizational domain and
@@ -243,22 +236,8 @@ class ODUPResolver(object):
         #_logger.debug('Enter ODUPResolver._resolve(): name: %s; orgDomain: %s' % (name, org_domain))
 
         # Check local policies
-        #   Primary case:
-        #     org_domain matches a local policy domain
-        #
-        #   Special case:
-        #     org_domain is a TLD, and the aggregated policy-negative realm is
-        #     available as a local policy--as the root zone
-        if org_domain in self._local_policies or \
-                (len(org_domain) == 2 and dns.name.root in self._local_policies):
-
-            if org_domain in self._local_policies:
-                local_policy = org_domain
-            else:
-                local_policy = dns.name.root
-
-            policy_domain, org_domain, policy = self._local_policies[local_policy].resolve(name)
-
+        if org_domain in self._local_policies:
+            policy_domain, org_domain, policy = self._local_policies[org_domain].resolve(name)
             # if an policy was actually returned, then return it
             if policy_domain is not None:
                 return policy_domain, org_domain, policy
