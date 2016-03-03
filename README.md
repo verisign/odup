@@ -142,8 +142,7 @@ sub.example.com.  Use `-d` to show the lookups.  "(local)" means that the
 information was learned from the file, rather than from DNS queries.
 ```
 $ python odup.py -d -n .:db._odup -s 127.0.0.1 sub.example.com
-com._odup./TXT: NOERROR (local): v=odup1 +bound
-example.com._odup./TXT: NXDOMAIN (local)
+example._odup.com./TXT: NXDOMAIN (local)
 sub._odup.example.com./TXT: NOERROR: v=odup1 +org
 _odup.sub.example.com./TXT: NXDOMAIN
           Domain name: sub.example.com
@@ -155,8 +154,7 @@ Organizational domain: sub.example.com.
 Also use the local version of the example.com policy realm:
 ```
 $ python odup.py -d -n .:db._odup -n example.com:db._odup.example.com -s 127.0.0.1 sub.example.com
-com._odup./TXT: NOERROR (local): v=odup1 +bound
-example.com._odup./TXT: NXDOMAIN (local)
+example._odup.com./TXT: NXDOMAIN (local)
 sub._odup.example.com./TXT: NOERROR (local): v=odup1 +org
 _odup.sub.example.com./TXT: NXDOMAIN
           Domain name: sub.example.com
@@ -169,8 +167,8 @@ Organizational domain: sub.example.com.
 Contrast this with the lookups performed without the local data:
 ```
 $ python odup.py -d -s 127.0.0.1 sub.example.com
-com._odup./TXT: NOERROR: v=odup1 +bound
-example.com._odup./TXT: NXDOMAIN
+example._odup.com./TXT: NXDOMAIN
+_odup.com./TXT: NOERROR: v=odup1 +bound +fetch:axfr:// -all
 sub._odup.example.com./TXT: NOERROR: v=odup1 +org
 _odup.sub.example.com./TXT: NXDOMAIN
           Domain name: sub.example.com
