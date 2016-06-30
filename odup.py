@@ -66,8 +66,8 @@ class ODUPPolicyRealm(object):
         z = dns.zone.from_file(filename, dns.name.from_text('_odup', origin))
 
         for name, ttl, rdata in z.iterate_rdatas():
-            suffix = dns.name.Name(name[-2:]).derelativize(origin)
-            name = dns.name.Name(name[:-2])
+            suffix = dns.name.Name(name[-1:]).derelativize(origin)
+            name = dns.name.Name(name[:-1])
             if suffix not in policy_realms:
                 policy_realms[suffix] = ODUPPolicyRealm(suffix)
             policy_realms[suffix].add_policy_from_rdata(name, rdata)
@@ -114,7 +114,7 @@ class ODUPPolicyRealm(object):
         if self._policies.get(dns.name.empty, None) is None:
             self._policies[dns.name.empty] = ''
 
-    def resolve(self, name):
+    def resolve(self, name, response):
         assert not name.is_absolute() or name.is_subdomain(self.origin)
 
         _logger = logging.getLogger(__name__)
@@ -129,45 +129,49 @@ class ODUPPolicyRealm(object):
         else:
             origin = self.origin.to_text()
 
-        if name == dns.name.empty:
-            if self._policies[dns.name.empty]:
-                _logger.debug('_odup.%s/TXT: NOERROR (local): %s' % (origin, self._policies[dns.name.empty]))
-            else:
-                _logger.debug('_odup.%s/TXT: NODATA (local)' % (origin))
-            return self.origin, self.origin, self._policies[dns.name.empty]
-
         # check for org/bound directives in names in ancestry
         longest_match = None
         longest_match_boundary = None
         existing_labels = 0
-        for i in range(len(name)):
-            j = -(i + 1)
-            test_domain = dns.name.Name(name[j:])
-            wildcard_name = dns.name.from_text('*', test_domain.parent())
+        for i in range(len(name) + 1):
+
+            if i == 0:
+                test_domain = dns.name.empty
+                wildcard_name = None
+            else:
+                test_domain = dns.name.Name(name[-i:])
+                wildcard_name = dns.name.from_text('*', test_domain.parent())
+
+            test_domain_qualified = dns.name.Name(test_domain.labels + ('_odup',) + self.origin.labels)
 
             policy = None
             # Name exists; check for policy
             if test_domain in self._policies:
-                existing_labels += 1
+                if i > 0:
+                    existing_labels += 1
                 if self._policies[test_domain] is not None:
-                    _logger.debug('%s._odup.%s/TXT: NOERROR (local): %s' % (test_domain, origin, self._policies[test_domain]))
+                    _logger.debug('%s/TXT: NOERROR (local): %s' % (test_domain_qualified, self._policies[test_domain]))
                     policy = self._policies[test_domain]
+                    response.add_query(test_domain_qualified, dns.rcode.NOERROR, policy)
                 else:
                     # It's effectively a NODATA response
-                    _logger.debug('%s._odup.%s/TXT: NODATA (local)' % (test_domain, origin))
+                    _logger.debug('%s/TXT: NODATA (local)' % (test_domain_qualified))
+                    response.add_query(test_domain_qualified, dns.rcode.NOERROR, None)
                     pass
 
             # Name doesn't exist; check for wildcard
             elif wildcard_name in self._policies and self._policies[wildcard_name] is not None:
-                _logger.debug('%s._odup.%s/TXT: NOERROR (wildcard local): %s' % (test_domain, origin, self._policies[wildcard_name]))
+                _logger.debug('%s/TXT: NOERROR (wildcard local): %s' % (test_domain_qualified, self._policies[wildcard_name]))
                 existing_labels += 1
                 policy = self._policies[wildcard_name]
+                response.add_query(test_domain_qualified, dns.rcode.NOERROR, policy)
 
             # Effective NXDOMAIN:
             # An NXDOMAIN result means that no further lookups are
             # necessary, as there is no subtree
             else:
-                _logger.debug('%s._odup.%s/TXT: NXDOMAIN (local)' % (test_domain, origin))
+                _logger.debug('%s/TXT: NXDOMAIN (local)' % (test_domain_qualified))
+                response.add_query(test_domain_qualified, dns.rcode.NXDOMAIN, None)
                 break
 
             if policy is not None:
@@ -208,43 +212,27 @@ class ODUPPolicyRealm(object):
             # longestMatchBoundary.
             if ORG_RE.search(longest_match) is not None:
                 org_domain = dns.name.Name(name[-(longest_match_boundary+1):]).derelativize(self.origin)
-                return None, org_domain, None
+                response.set_policy(None, org_domain, None)
+                return response
             # A +bound directive indicates that the organizational domain
             # and policy are (at least) one level lower than the value of
             # longestExistingBoundary.
-            if BOUND_RE.search(longest_match) is not None:
-                if existing_labels + 1 <= len(name):
-                    org_domain = dns.name.Name(name[-(existing_labels+1):]).derelativize(self.origin)
-                    return None, org_domain, None
-                else:
-                    if self._policies[dns.name.empty]:
-                        _logger.debug('_odup.%s/TXT: NOERROR (local): %s' % (origin, self._policies[dns.name.empty]))
-                    else:
-                        _logger.debug('_odup.%s/TXT: NODATA (local)' % (origin))
-                    return self.origin, self.origin, self._policies[dns.name.empty]
+            if BOUND_RE.search(longest_match) is not None and \
+                    existing_labels + 1 <= len(name):
+                org_domain = dns.name.Name(name[-(existing_labels+1):]).derelativize(self.origin)
+                response.set_policy(None, org_domain, None)
+                return response
 
             # With no +org or +bound directives present, the orgDomain and
             # policy remain as they were looked up, and are returned with
             # the policy domain
             policy_domain = dns.name.Name(name[-(longest_match_boundary+1):]).derelativize(self.origin)
-            return policy_domain, self.origin, longest_match
+            response.set_policy(policy_domain, self.origin, longest_match)
+            return response
         else:
-            # There is no more specific policy for the given name.
-            #
-            # A +bound directive indicates that the organizational domain
-            # and policy are (at least) one level lower than the value of
-            # longestExistingBoundary.
-            if BOUND_RE.search(self._policies[dns.name.empty]) is not None and \
-                    existing_labels + 1 <= len(name):
-                org_domain = dns.name.Name(name[-(existing_labels+1):]).derelativize(self.origin)
-                return None, org_domain, None
-
             # Otherwise, return the policy for the orgDomain
-            if self._policies[dns.name.empty]:
-                _logger.debug('_odup.%s/TXT: NOERROR (local): %s' % (origin, self._policies[dns.name.empty]))
-            else:
-                _logger.debug('_odup.%s/TXT: NODATA (local)' % (origin))
-            return self.origin, self.origin, self._policies[dns.name.empty]
+            response.set_policy(None, self.origin, None)
+            return response
 
 class ODUPResponse(object):
     def __init__(self):
@@ -283,13 +271,12 @@ class ODUPResolver(object):
 
         # Check local policies
         if org_domain in self._local_policies:
-            policy_domain, org_domain, policy = self._local_policies[org_domain].resolve(name)
+            self._local_policies[org_domain].resolve(name, response)
             # if an policy was actually returned, then return it
-            if policy_domain is not None:
-                response.set_policy(policy_domain, org_domain, policy)
+            if response.policy_domain is not None:
                 return response
             # otherwise, use the hint to return the right answer
-            return self._resolve(name, len(org_domain) - 1, response)
+            return self._resolve(name, len(response.org_domain) - 1, response)
 
         subdomain_labels = len(name) - org_boundary
         longest_match = None
