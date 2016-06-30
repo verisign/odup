@@ -246,6 +246,21 @@ class ODUPPolicyRealm(object):
                 _logger.debug('_odup.%s/TXT: NODATA (local)' % (origin))
             return self.origin, self.origin, self._policies[dns.name.empty]
 
+class ODUPResponse(object):
+    def __init__(self):
+        self.queries = []
+        self.policy = None
+        self.policy_domain = None
+        self.org_domain = None
+
+    def add_query(self, name, rcode, rdata):
+        self.queries.append((name, rcode, rdata))
+
+    def set_policy(self, policy_domain, org_domain, policy):
+        self.policy_domain = policy_domain
+        self.org_domain = org_domain
+        self.policy = policy
+
 class ODUPResolver(object):
     def __init__(self, resolver=None, local_policies=None):
         if resolver is None:
@@ -256,9 +271,11 @@ class ODUPResolver(object):
         self._local_policies = local_policies
 
     def resolve(self, name):
-        return self._resolve(name, 1)
+        return self._resolve(name, 1, ODUPResponse())
 
-    def _resolve(self, name, org_boundary):
+    def _resolve(self, name, org_boundary, response):
+        assert 1 <= org_boundary < len(name)
+
         org_domain = dns.name.Name(name[-(org_boundary+1):])
 
         _logger = logging.getLogger(__name__)
@@ -269,44 +286,20 @@ class ODUPResolver(object):
             policy_domain, org_domain, policy = self._local_policies[org_domain].resolve(name)
             # if an policy was actually returned, then return it
             if policy_domain is not None:
-                return policy_domain, org_domain, policy
+                response.set_policy(policy_domain, org_domain, policy)
+                return response
             # otherwise, use the hint to return the right answer
-            return self._resolve(name, len(org_domain) - 1)
+            return self._resolve(name, len(org_domain) - 1, response)
 
-        # Base case: orgDomain is composed of all labels
-        if org_boundary == len(name) - 1:
-            test_domain = dns.name.from_text('_odup', org_domain)
-            try:
-                ans = self._resolver.query(test_domain, dns.rdatatype.TXT)
-            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer), e:
-                # return an empty policy
-                if isinstance(e, dns.resolver.NXDOMAIN):
-                    _logger.debug('%s/TXT: NXDOMAIN' % (test_domain))
-                else:
-                    _logger.debug('%s/TXT: NODATA' % (test_domain))
-                return org_domain, org_domain, ''
-            except dns.exception.DNSException, e:
-                #TODO what is the sane default for DNS resolution errors?
-                _logger.error('%s/TXT: %s' % (test_domain, e.__class__.__name__))
-                return org_domain, org_domain, ''
-
-            try:
-                policy = filter(lambda x: ODUP_VERS1.search(x.to_text().strip('"')), ans.rrset)[0].to_text().strip('"')
-            except IndexError:
-                # return an empty policy
-                _logger.debug('%s/TXT: NOERROR (no policy)' % (test_domain))
-                return org_domain, org_domain, ''
-            else:
-                # Return the contents of the TXT record
-                _logger.debug('%s/TXT: NOERROR: %s' % (test_domain, policy))
-                return org_domain, org_domain, policy
-
-        subdomain_labels = len(name) - (org_boundary + 1)
+        subdomain_labels = len(name) - org_boundary
         longest_match = None
         longest_match_boundary = None
         existing_labels = 0
         for i in range(subdomain_labels):
-            subdomain = dns.name.Name(name[-(org_boundary + 2 + i):-(org_boundary + 1)])
+            if i == 0:
+                subdomain = dns.name.empty
+            else:
+                subdomain = dns.name.Name(name[-(org_boundary + 1 + i):-(org_boundary + 1)])
             test_domain = dns.name.Name(subdomain.labels + ('_odup',) + org_domain.labels)
 
             try:
@@ -315,24 +308,30 @@ class ODUPResolver(object):
                 # An NXDOMAIN result means that no further lookups are
                 # necessary, as there is no subtree
                 _logger.debug('%s/TXT: NXDOMAIN' % (test_domain))
+                response.add_query(test_domain, dns.rcode.NXDOMAIN, None)
                 break
             except dns.resolver.NoAnswer:
                 _logger.debug('%s/TXT: NODATA' % (test_domain))
+                response.add_query(test_domain, dns.rcode.NOERROR, None)
                 existing_labels += 1
                 pass
             except dns.exception.DNSException, e:
                 #TODO what is the sane default for DNS resolution errors?
                 _logger.error('%s/TXT: %s' % (test_domain, e.__class__.__name__))
+                response.add_query(test_domain, None, None)
                 break
 
             else:
-                existing_labels += 1
+                if i > 0:
+                    existing_labels += 1
                 try:
                     policy = filter(lambda x: ODUP_VERS1.search(x.to_text().strip('"')), ans.rrset)[0].to_text().strip('"')
                 except IndexError:
                     _logger.debug('%s/TXT: NOERROR (no policy)' % (test_domain))
+                    response.add_query(test_domain, dns.rcode.NOERROR, None)
                 else:
                     _logger.debug('%s/TXT: NOERROR: %s' % (test_domain, policy))
+                    response.add_query(test_domain, dns.rcode.NOERROR, policy)
 
                     org_match = ORG_RE.search(policy)
                     bound_match = BOUND_RE.search(policy)
@@ -365,34 +364,23 @@ class ODUPResolver(object):
             # organizational domain and policy are (at least) one level
             # lower than the value of longestMatchBoundary.
             if ORG_RE.search(longest_match) is not None:
-                return self._resolve(name, org_boundary + longest_match_boundary + 1)
+                return self._resolve(name, org_boundary + longest_match_boundary, response)
             # A +bound directive indicates that the organizational domain
             # and policy are (at least) one level lower than the value of
             # longestExistingBoundary.
-            if BOUND_RE.search(longest_match) is not None:
-                if org_boundary + existing_labels + 1 <= len(name) - 1:
-                    return self._resolve(name, org_boundary + existing_labels + 1)
-                else:
-                    return self._resolve(org_domain, len(org_domain) - 1)
+            if BOUND_RE.search(longest_match) is not None and \
+                    org_boundary + existing_labels + 1 <= len(name) - 1:
+                return self._resolve(name, org_boundary + existing_labels + 1, response)
 
             # With no +org or +bound directives present, the orgDomain and
             # policy remain as they were looked up, and are returned with
             # the policy domain
-            return dns.name.Name(name[-(org_boundary + longest_match_boundary + 2):]), org_domain, longest_match
+            response.set_policy(dns.name.Name(name[-(org_boundary + longest_match_boundary + 1):]), org_domain, longest_match)
+            return response
         else:
-            # There is no more specific policy for the given name.
-            #
-            pd, od, policy = \
-                    self._resolve(org_domain, len(org_domain) - 1)
-            # A +bound directive indicates that the organizational domain
-            # and policy are (at least) one level lower than the value of
-            # longestExistingBoundary.
-            if BOUND_RE.search(policy) is not None and \
-                    org_boundary + existing_labels + 1 <= len(name) - 1:
-                return self._resolve(name, org_boundary + existing_labels + 1)
-
             # Otherwise, return the policy for the orgDomain
-            return pd, od, policy
+            response.set_policy(org_domain, org_domain, "")
+            return response
 
 def usage():
     import sys
@@ -443,11 +431,11 @@ def main():
             _logger.setLevel(logging.DEBUG)
 
     r = ODUPResolver(resolver=r, local_policies=local_policies)
-    policy_domain, org_domain, policy = r.resolve(dns.name.from_text(args[0]))
+    response = r.resolve(dns.name.from_text(args[0]))
     print '          Domain name: %s' % (args[0])
-    print 'Organizational domain: %s' % (org_domain)
-    print '        Policy domain: %s' % (policy_domain)
-    print '               Policy: %s' % (policy)
+    print 'Organizational domain: %s' % (response.org_domain)
+    print '        Policy domain: %s' % (response.policy_domain)
+    print '               Policy: %s' % (response.policy)
 
 if __name__ == '__main__':
     main()
