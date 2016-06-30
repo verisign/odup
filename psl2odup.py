@@ -111,9 +111,9 @@ def export_zone(suffix, names, zonefile_dir, server_names, conffile_fh):
             if name[0][0].startswith('!'):
                 fh.write('%s\tTXT\t"v=odup1 +org"\n' % (name.to_text().lstrip('!')))
             elif name[0] == '*':
-                fh.write('%s\tTXT\t"v=odup1 +bound:%d"\n' % (name.to_text(), len(name) - 1))
+                fh.write('%s\tTXT\t"v=odup1 +bound:%d -all"\n' % (name.to_text(), len(name) - 1))
             else:
-                fh.write('%s\tTXT\t"v=odup1 +bound"\n' % (name.to_text()))
+                fh.write('%s\tTXT\t"v=odup1 +bound -all"\n' % (name.to_text()))
 
 def usage():
     import sys
