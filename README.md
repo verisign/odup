@@ -48,7 +48,7 @@ $ cat - <<EOF > db._odup.example.com
   NS  b.odup.example.com.
 sub TXT "v=odup1 +org"
 sub.b.a TXT "v=odup1 +org"
-no-wildcard TXT "v=odup1 -wildcardtlscert"
+no-cookie TXT "v=odup1 -httpcookie"
 EOF
 ```
 
@@ -142,7 +142,9 @@ sub.example.com.  Use `-d` to show the lookups.  "(local)" means that the
 information was learned from the file, rather than from DNS queries.
 ```
 $ python odup.py -d -n .:db._odup -s 127.0.0.1 sub.example.com
+_odup.com./TXT: NOERROR (local): v=odup1 +bound -all
 example._odup.com./TXT: NXDOMAIN (local)
+_odup.example.com./TXT: NODATA
 sub._odup.example.com./TXT: NOERROR: v=odup1 +org
 _odup.sub.example.com./TXT: NXDOMAIN
           Domain name: sub.example.com
@@ -154,7 +156,9 @@ Organizational domain: sub.example.com.
 Also use the local version of the example.com policy realm:
 ```
 $ python odup.py -d -n .:db._odup -n example.com:db._odup.example.com -s 127.0.0.1 sub.example.com
+_odup.com./TXT: NOERROR (local): v=odup1 +bound -all
 example._odup.com./TXT: NXDOMAIN (local)
+_odup.example.com./TXT: NOERROR (local):
 sub._odup.example.com./TXT: NOERROR (local): v=odup1 +org
 _odup.sub.example.com./TXT: NXDOMAIN
           Domain name: sub.example.com
@@ -167,8 +171,9 @@ Organizational domain: sub.example.com.
 Contrast this with the lookups performed without the local data:
 ```
 $ python odup.py -d -s 127.0.0.1 sub.example.com
-example._odup.com./TXT: NXDOMAIN
 _odup.com./TXT: NOERROR: v=odup1 +bound +fetch:axfr:// -all
+example._odup.com./TXT: NXDOMAIN
+_odup.example.com./TXT: NODATA
 sub._odup.example.com./TXT: NOERROR: v=odup1 +org
 _odup.sub.example.com./TXT: NXDOMAIN
           Domain name: sub.example.com
